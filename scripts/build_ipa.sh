@@ -18,7 +18,7 @@ FE="$UP/frontend"
 IOS_APP="$FE/ios/App"
 
 [ -d "$IOS_APP/App.xcworkspace" ] || { echo "!! 找不到 $IOS_APP/App.xcworkspace"; exit 1; }
-[ -d "$IOS_APP/App/App/public" ]  || { echo "!! 缺少 web 资源 ios/App/App/public，先跑 npm run build:mobile"; exit 1; }
+[ -f "$IOS_APP/App/public/index.html" ] || { echo "!! 缺少 web 资源 $IOS_APP/App/public，先跑 npm run build:mobile"; exit 1; }
 
 VER="$(node -p "require('$FE/package.json').version")"
 BUILD="$(sed -n 's/^ *versionCode \([0-9]*\).*/\1/p' "$FE/android/app/build.gradle" | head -1)"
