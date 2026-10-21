@@ -1,0 +1,158 @@
+name: Build openGym unsigned IPA (TrollStore)
+
+# 在 GitHub 托管的 macOS runner 上把 openGym 编译成**未签名 IPA**，
+# 供 iOS 15.5–16.6.1（arm64）的 TrollStore 设备侧载安装。
+# 不涉及任何 Apple 开发者账号：全程 CODE_SIGNING_ALLOWED=NO + ldid ad-hoc 伪签名，
+# 真正的签名由 TrollStore 在设备上完成。
+#
+# 触发：Actions → Build openGym unsigned IPA → Run workflow，或推送到本仓库 main。
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      upstream_ref:
+        description: 'openGym 上游的分支或 tag（建议填具体版本 tag，例如 v1.4.1）'
+        required: true
+        default: 'v1.4.1'
+      build_lite:
+        description: '同时产出去掉演示动画的精简包（体积小很多，适合慢网络）'
+        type: boolean
+        default: true
+
+permissions:
+  contents: write # 把 IPA 挂到 Release，便于直接下载
+
+env:
+  UPSTREAM: https://github.com/DuarteSantos8/openGym.git
+
+jobs:
+  build:
+    name: Build IPA on macOS
+    runs-on: macos-15
+    timeout-minutes: 120
+
+    steps:
+      - name: Checkout harness
+        uses: actions/checkout@v4
+
+      - name: Resolve upstream ref
+        id: ref
+        run: |
+          REF="${{ github.event.inputs.upstream_ref }}"
+          echo "ref=${REF:-v1.4.1}" >> "$GITHUB_OUTPUT"
+
+      - name: Select newest Xcode
+        run: |
+          LATEST=$(ls -d /Applications/Xcode*.app 2>/dev/null | sort -V | tail -1)
+          [ -n "$LATEST" ] || { echo "!! 没有找到 Xcode"; exit 1; }
+          echo "Using $LATEST"
+          sudo xcode-select -s "$LATEST/Contents/Developer"
+          xcodebuild -version
+
+      - name: Install tooling (CocoaPods, ldid)
+        run: |
+          command -v pod  >/dev/null || brew install cocoapods
+          command -v ldid >/dev/null || brew install ldid
+          pod --version
+          ldid -v 2>&1 | head -2 || true
+
+      - name: Clone openGym (${{ steps.ref.outputs.ref }})
+        run: |
+          git clone --depth 1 --branch "${{ steps.ref.outputs.ref }}" "$UPSTREAM" upstream
+          cd upstream
+          echo "commit: $(git rev-parse --short HEAD)  $(git log -1 --format=%s | cut -c1-80)"
+          du -sh .
+
+      - name: Node 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install frontend deps
+        run: |
+          cd upstream/frontend
+          npm ci --no-audit --no-fund
+
+      - name: Build mobile web bundle + sync native projects
+        run: |
+          cd upstream/frontend
+          # VITE_MOBILE=1 的构建 + 把动作素材 stage 进 dist + cap sync（含 pod install）
+          npm run build:mobile
+          # cap sync 若因 CocoaPods 环境问题跳过了 pod install，这里补上
+          if [ ! -d ios/App/Pods ]; then
+            echo "==> Pods 缺失，手动 pod install"
+            cd ios/App && pod install
+          fi
+
+      - name: Compile, fakesign and package IPA
+        run: |
+          chmod +x scripts/build_ipa.sh
+          if [ "${{ github.event.inputs.build_lite }}" = "false" ]; then
+            ./scripts/build_ipa.sh --no-lite
+          else
+            ./scripts/build_ipa.sh
+          fi
+
+      - name: Verify IPA structure
+        run: |
+          for f in openGym-*.ipa; do
+            echo "=== $f ($(du -h "$f" | cut -f1))"
+            unzip -l "$f" | head -8
+            unzip -l "$f" | grep -q 'Payload/App.app/App$' && echo "  OK: Payload/App.app/App"
+            unzip -l "$f" | grep -q 'Payload/App.app/public/index.html' && echo "  OK: web 资源已打进包内"
+          done
+
+      - name: Upload IPA artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: openGym-trollstore-ipa
+          path: |
+            openGym-*.ipa
+            openGym-*.ipa.sha256
+          retention-days: 30
+          if-no-files-found: error
+
+      - name: Publish to Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VER=$(node -p "require('./upstream/frontend/package.json').version")
+          TAG="v$VER"
+          echo "release tag: $TAG"
+          gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 \
+            || gh release create "$TAG" --repo "$GITHUB_REPOSITORY" \
+                 --title "openGym $VER unsigned IPA (TrollStore)" \
+                 --notes "由 GitHub Actions 在 macOS runner 上从上游 ${{ steps.ref.outputs.ref }} 编译的**未签名** IPA。安装：TrollStore → 打开 ipa → Install。适用于 iOS 15.5–16.6.1（arm64）、iOS 17.0 的 TrollStore 2。"
+          gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" openGym-*.ipa openGym-*.ipa.sha256 --clobber
+
+      - name: Upload build log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xcodebuild-log
+          path: |
+            xcodebuild.log
+          retention-days: 7
+          if-no-files-found: ignore
+
+      - name: Summary
+        run: |
+          {
+            echo "## 构建完成"
+            echo ""
+            echo "| 项 | 值 |"
+            echo "|---|---|"
+            echo "| 上游版本 | \`${{ steps.ref.outputs.ref }}\` |"
+            echo "| Runner | macOS |"
+            echo "| 签名 | 未签名（ldid ad-hoc），TrollStore 设备端重签 |"
+            for f in openGym-*.ipa; do
+              echo "| $(basename "$f") | $(du -h "$f" | cut -f1) |"
+            done
+            echo ""
+            echo "### 安装"
+            echo "1. 下载 ipa（Artifacts 或 Release）"
+            echo "2. 传到 iPhone（AirDrop / 文件 App / 微信传文件另存）"
+            echo "3. TrollStore → 打开 ipa → Install"
+          } >> "$GITHUB_STEP_SUMMARY"

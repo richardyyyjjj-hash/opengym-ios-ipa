@@ -1,0 +1,9 @@
+upstream/
+build/
+derived/
+out/
+lite-app/
+*.ipa
+*.ipa.sha256
+xcodebuild.log
+.DS_Store
