@@ -20,6 +20,20 @@ IOS_APP="$FE/ios/App"
 [ -d "$IOS_APP/App.xcworkspace" ] || { echo "!! 找不到 $IOS_APP/App.xcworkspace"; exit 1; }
 [ -f "$IOS_APP/App/public/index.html" ] || { echo "!! 缺少 web 资源 $IOS_APP/App/public，先跑 npm run build:mobile"; exit 1; }
 
+# ------------------------------------------------------- 0. 产物兼容性门禁
+# RegExp 后瞻断言 (?<= / (?<! 是 iOS 16.4 才有的语法；16.3 及更早会在模块解析期
+# 抛 SyntaxError（invalid group specifier name），整条 import 链断掉 → 启动黑屏。
+# 源码补丁由 scripts/patch-webcompat.mjs 负责，这里只做产物兜底校验：
+# 万一压缩/转译又把后瞻带回来，宁可构建失败也不要发出一个装上黑屏的包。
+BAD_FILES="$(grep -rlE '\(\?<[=!]' "$IOS_APP/App/public" 2>/dev/null || true)"
+if [ -n "$BAD_FILES" ]; then
+  echo "!! web 产物含 RegExp 后瞻断言（iOS 16.4+ 才支持），16.3 上必然黑屏："
+  echo "$BAD_FILES" | sed 's/^/     /'
+  echo "   先跑 node scripts/patch-webcompat.mjs 补源码，再重新 npm run build:mobile"
+  exit 1
+fi
+echo "==> web 产物兼容性检查通过（无 iOS 16.4+ 正则语法）"
+
 VER="$(node -p "require('$FE/package.json').version")"
 BUILD="$(sed -n 's/^ *versionCode \([0-9]*\).*/\1/p' "$FE/android/app/build.gradle" | head -1)"
 [ -n "${BUILD:-}" ] || BUILD=1

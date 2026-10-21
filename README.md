@@ -23,14 +23,23 @@
 
 ```
 clone 上游 tag
+  → node scripts/patch-webcompat.mjs   # 去掉 iOS 16.4+ 才支持的 RegExp 后瞻断言
   → cd frontend && npm ci
   → npm run build:mobile      # VITE_MOBILE 构建 + 动作素材 stage + cap sync（含 pod install）
+  → 产物门禁：public/ 里不得残留 (?<= / (?<!
   → 按 pbxproj 生成共享 scheme（上游没提交，干净克隆必须补）
   → xcodebuild archive  CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO
   → 去掉 Info.plist 里过时的 UIRequiredDeviceCapabilities(armv7)
   → ldid -S 遍历 App.app 内所有 Mach-O（主二进制 + Pods 动态框架）
   → Payload/ + zip → .ipa（另出 lite 变体）→ sha256
 ```
+
+> **iOS 16.3 黑屏的成因**（已修）：上游 `frontend/src/lib/media-refs.js` 用
+> `/^(?!-)[a-z0-9-]{1,63}(?<!-)$/i` 校验主机名标签，`(?<!-)` 是后瞻断言，Safari 到
+> **iOS 16.4** 才支持。16.3 的 JSC 会把 `(?<` 当命名捕获组解析，读到 `!-` 抛
+> `SyntaxError: invalid group specifier name`，而该错误发生在模块解析期，整条
+> import 链断掉 → `#root` 永远为空 → 启动黑屏。补丁换成等价写法
+> `/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/i`（2845 组输入穷举对比，0 差异）。
 
 ## 已知取舍
 

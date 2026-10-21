@@ -74,6 +74,9 @@ jobs:
         with:
           node-version: '22'
 
+      - name: Patch web compatibility for iOS 16.3
+        run: node scripts/patch-webcompat.mjs upstream/frontend/src
+
       - name: Install frontend deps
         run: |
           cd upstream/frontend
