@@ -17,9 +17,9 @@ on:
         required: true
         default: 'v1.4.1'
       build_lite:
-        description: '同时产出去掉演示动画的精简包（体积小很多，适合慢网络）'
+        description: '额外产出一个去掉演示动画的精简包（默认不产出）'
         type: boolean
-        default: true
+        default: false
 
 permissions:
   contents: write # 把 IPA 挂到 Release，便于直接下载

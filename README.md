@@ -14,7 +14,7 @@
 
 1. Actions → **Build openGym unsigned IPA (TrollStore)** → *Run workflow*
    - `upstream_ref`：上游 tag（默认 `v1.4.1`）
-   - `build_lite`：是否同时产出「去掉演示动画」的精简包
+   - `build_lite`：默认关闭。只有勾选时才额外产出一个去掉演示动画的精简包
 2. 等 30–45 分钟
 3. 从 Release 或 Artifacts 下载 `openGym-<版本>-unsigned.ipa`
 4. 传到 iPhone → TrollStore 打开 → Install
