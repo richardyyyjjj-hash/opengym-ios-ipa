@@ -23,6 +23,11 @@ import path from 'node:path'
 const ROOT = process.argv[2] || 'upstream/frontend/src'
 const EXT = new Set(['.js', '.jsx', '.ts', '.tsx', '.mjs'])
 
+// 测试/故事文件不参与打包（vite 只从入口静态可达的模块开始打），
+// 里面出现后瞻断言也不影响 iOS 16.3，扫进来只会误报。
+const isSkipped = (p) =>
+  /\.(test|spec)\.[cm]?[jt]sx?$/.test(p) || /[\\/](__tests__|__mocks__|stories)[\\/]/.test(p)
+
 const RULES = [
   {
     name: 'hostname LABEL 后瞻断言',
@@ -42,7 +47,7 @@ function walk(dir, out = []) {
     if (e.name === 'node_modules' || e.name.startsWith('.')) continue
     const p = path.join(dir, e.name)
     if (e.isDirectory()) walk(p, out)
-    else if (EXT.has(path.extname(e.name))) out.push(p)
+    else if (EXT.has(path.extname(e.name)) && !isSkipped(p)) out.push(p)
   }
   return out
 }
