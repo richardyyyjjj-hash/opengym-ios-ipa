@@ -20,6 +20,10 @@ on:
         description: '额外产出一个去掉演示动画的精简包（默认不产出）'
         type: boolean
         default: false
+      diag:
+        description: '诊断版：洋红底色 + 页面内错误浮层（实机黑屏时用）'
+        type: boolean
+        default: false
 
 permissions:
   contents: write # 把 IPA 挂到 Release，便于直接下载
@@ -87,6 +91,8 @@ jobs:
           fi
 
       - name: Compile, fakesign and package IPA
+        env:
+          DIAG: ${{ github.event.inputs.diag == 'true' && '1' || '0' }}
         run: |
           chmod +x scripts/build_ipa.sh
           if [ "${{ github.event.inputs.build_lite }}" = "false" ]; then
@@ -107,7 +113,7 @@ jobs:
       - name: Upload IPA artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: openGym-trollstore-ipa
+          name: openGym-trollstore-ipa${{ github.event.inputs.diag == 'true' && '-diag' || '' }}
           path: |
             openGym-*.ipa
             openGym-*.ipa.sha256
@@ -120,10 +126,14 @@ jobs:
         run: |
           VER=$(node -p "require('./upstream/frontend/package.json').version")
           TAG="v$VER"
+          TITLE="openGym $VER unsigned IPA (TrollStore)"
+          if [ "${{ github.event.inputs.diag }}" = "true" ]; then
+            TAG="diag-v$VER"; TITLE="openGym $VER 诊断版（洋红底色 + 错误浮层）"
+          fi
           echo "release tag: $TAG"
           gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 \
             || gh release create "$TAG" --repo "$GITHUB_REPOSITORY" \
-                 --title "openGym $VER unsigned IPA (TrollStore)" \
+                 --title "$TITLE" \
                  --notes "由 GitHub Actions 在 macOS runner 上从上游 ${{ steps.ref.outputs.ref }} 编译的**未签名** IPA。安装：TrollStore → 打开 ipa → Install。适用于 iOS 15.5–16.6.1（arm64）、iOS 17.0 的 TrollStore 2。"
           gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" openGym-*.ipa openGym-*.ipa.sha256 --clobber
 

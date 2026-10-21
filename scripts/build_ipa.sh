@@ -81,6 +81,56 @@ echo "==> App.app: $(du -sh "$APP" | cut -f1)"
 /usr/libexec/PlistBuddy -c "Delete :UIRequiredDeviceCapabilities" "$APP/Info.plist" 2>/dev/null || true
 echo "==> BundleID=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP/Info.plist")  Version=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Info.plist")  MinOS=$(/usr/libexec/PlistBuddy -c 'Print :MinimumOSVersion' "$APP/Info.plist" 2>/dev/null || echo '?')"
 
+# ---------------------------------------------------------------- 3.5 诊断模式
+# DIAG=1 时：WebView 底色改成洋红、往 index.html 里注一个错误浮层。
+# 用途：实机黑屏时分清「进程在启动阶段就崩了」（连洋红都看不到，还是黑的）
+#       和「WebView 起来了但页面没渲染」（看到洋红，浮层会写出具体报错）。
+if [ "${DIAG:-0}" = "1" ]; then
+  echo "==> 诊断模式：洋红底色 + 页面内错误浮层"
+  python3 - "$APP" <<'PY'
+import json, sys
+app = sys.argv[1]
+cfg = app + "/capacitor.config.json"
+d = json.load(open(cfg))
+d["backgroundColor"] = "#ff0055"
+json.dump(d, open(cfg, "w"), indent=2, ensure_ascii=False)
+
+DIAG_JS = """<script>
+(function(){
+  var out=[], el=null;
+  function paint(){
+    if(!el){ el=document.createElement('pre'); el.id='ogdiag';
+      el.style.cssText='position:fixed;inset:0;z-index:2147483647;margin:0;padding:14px;background:#fff;color:#111;font:12px/1.45 ui-monospace,Menlo,monospace;white-space:pre-wrap;overflow:auto;-webkit-user-select:text;user-select:text;-webkit-text-size-adjust:100%';
+      (document.body||document.documentElement).appendChild(el); }
+    el.textContent='openGym DIAG\\n'+location.href+'\\nCapacitor='+(window.Capacitor&&window.Capacitor.getPlatform?window.Capacitor.getPlatform():'undefined')+'\\nreadyState='+document.readyState+'\\n\\n'+out.join('\\n\\n');
+  }
+  function push(s){ out.push(String(s)); paint(); }
+  window.addEventListener('error', function(e){
+    var t=e.target;
+    if(t&&t!==window&&(t.src||t.href)){ push('资源加载失败: <'+t.tagName+'> '+(t.src||t.href)); return; }
+    push('JS 错误: '+(e.message||'')+'\\n@'+(e.filename||'')+':'+(e.lineno||0)+'\\n'+((e.error&&e.error.stack)||''));
+  }, true);
+  window.addEventListener('unhandledrejection', function(e){
+    var r=e.reason; push('未捕获 Promise: '+((r&&(r.stack||r.message))||r));
+  });
+  setTimeout(function(){
+    var r=document.getElementById('root');
+    if(!r || r.childElementCount===0) push('5 秒后 #root 仍为空 → JS 未执行或渲染失败');
+    else if(out.length===0 && el) el.remove();
+  }, 5000);
+})();
+</script>
+"""
+
+html = app + "/public/index.html"
+s = open(html, encoding="utf-8").read()
+if "ogdiag" not in s:
+    s = s.replace("<head>", "<head>\n" + DIAG_JS, 1)
+    open(html, "w", encoding="utf-8").write(s)
+print("诊断脚本已注入；背景色 =", d["backgroundColor"])
+PY
+fi
+
 # ---------------------------------------------------------------- 4. 伪签名
 # 只做 ad-hoc 签名（ldid），不做真签名：TrollStore 装的时候会在设备上重签。
 # 主二进制和 Pods 里的动态框架都要覆盖，否则 dlopen 会因签名无效被拒。
@@ -107,12 +157,14 @@ pack() { # $1=ipa 路径
   rm -rf "$ROOT/out"
 }
 
-IPA_FULL="$ROOT/openGym-$VER-unsigned.ipa"
+SUFFIX=""
+[ "${DIAG:-0}" = "1" ] && SUFFIX="-diag"
+IPA_FULL="$ROOT/openGym-$VER$SUFFIX-unsigned.ipa"
 echo "==> 打包完整包"
 pack "$IPA_FULL"
 
 IPA_LITE=""
-if [ "${1:-}" != "--no-lite" ] && [ -d "$APP/public/exercise-media/clip" ]; then
+if [ "${1:-}" != "--no-lite" ] && [ "${DIAG:-0}" != "1" ] && [ -d "$APP/public/exercise-media/clip" ]; then
   LITE_APP="$ROOT/lite-app/App.app"
   rm -rf "$ROOT/lite-app"
   mkdir -p "$ROOT/lite-app"
