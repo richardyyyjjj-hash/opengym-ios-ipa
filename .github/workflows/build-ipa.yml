@@ -74,8 +74,8 @@ jobs:
         with:
           node-version: '22'
 
-      - name: Patch web compatibility for iOS 16.3
-        run: node scripts/patch-webcompat.mjs upstream/frontend/src
+      - name: Patch upstream source (iOS 16.3 regex + BYOK daily cap)
+        run: node scripts/patch-upstream.mjs upstream/frontend/src
 
       - name: Install frontend deps
         run: |

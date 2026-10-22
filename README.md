@@ -23,7 +23,7 @@
 
 ```
 clone 上游 tag
-  → node scripts/patch-webcompat.mjs   # 去掉 iOS 16.4+ 才支持的 RegExp 后瞻断言
+  → node scripts/patch-upstream.mjs   # iOS 16.3 正则兼容 + 解除 BYOK 每日 10 次上限
   → cd frontend && npm ci
   → npm run build:mobile      # VITE_MOBILE 构建 + 动作素材 stage + cap sync（含 pod install）
   → 产物门禁：public/ 里不得残留 (?<= / (?<!
